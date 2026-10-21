@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+# Archivos temporales de LaTeX
+informe/*.aux
+informe/*.log
+informe/*.toc
+informe/*.out
+informe/*.synctex.gz
