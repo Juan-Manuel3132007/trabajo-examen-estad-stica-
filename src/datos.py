@@ -1,14 +1,15 @@
 """
 datos.py
 --------
-Carga los 40 datos hipotéticos de la guía "Simulación de Montecarlo"
-(Prof. Horacio Fernández C.).
+Carga de datos para la simulación de Monte Carlo.
 
-Primero intenta leer el archivo Excel original del profesor que está en la
-carpeta data/. Si no lo encuentra, usa una copia de los mismos 40 datos
-escrita en este archivo, para que la aplicación funcione siempre.
+1. Los 40 datos hipotéticos de la guía "Simulación de Montecarlo"
+   (Prof. Horacio Fernández C.). Primero se intenta leer el Excel original
+   que está en data/; si no existe, se usa una copia interna de los mismos datos.
+2. Un archivo propio del usuario (CSV o Excel) subido desde la aplicación.
 """
 
+import io
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +33,9 @@ _TIEMPO = [6.2, 6.8, 6.5, 7.1, 6.9, 7.4, 7.0, 6.6, 7.8, 6.9,
            6.4, 7.4, 6.9, 7.9, 7.2, 6.3, 7.6, 6.7, 8.0, 7.1]
 
 
+# ---------------------------------------------------------------------------
+# 1. Datos de la guía
+# ---------------------------------------------------------------------------
 def cargar_datos() -> tuple[pd.DataFrame, str]:
     """
     Devuelve (tabla, origen).
@@ -57,3 +61,56 @@ def cargar_datos() -> tuple[pd.DataFrame, str]:
     # Paso 2 de la guía: Costo histórico = Demanda × Costo unitario  (columna E)
     tabla["CostoTotal"] = tabla["Demanda"] * tabla["CostoUnitario"]
     return tabla, origen
+
+
+# ---------------------------------------------------------------------------
+# 2. Archivo propio del usuario
+# ---------------------------------------------------------------------------
+def hojas_excel(archivo) -> list[str]:
+    """Nombres de las hojas de un Excel subido (para que el usuario elija una)."""
+    return pd.ExcelFile(archivo).sheet_names
+
+
+def leer_archivo_usuario(archivo, hoja: str | None = None) -> pd.DataFrame:
+    """
+    Lee un CSV o Excel subido desde la aplicación y deja como números
+    las columnas que lo son.
+
+    Acepta los dos formatos de CSV más comunes:
+      - separador ","  y decimal "."   (formato internacional)
+      - separador ";"  y decimal ","   (lo que exporta Excel en español)
+    """
+    nombre = archivo.name.lower()
+    if nombre.endswith((".xlsx", ".xls")):
+        tabla = pd.read_excel(archivo, sheet_name=hoja or 0)
+    else:
+        texto = archivo.getvalue().decode("utf-8-sig", errors="replace")
+        primera_linea = texto.splitlines()[0] if texto else ""
+        separador = ";" if primera_linea.count(";") > primera_linea.count(",") else ","
+        decimal = "," if separador == ";" else "."
+        tabla = pd.read_csv(io.StringIO(texto), sep=separador, decimal=decimal)
+
+    # Quitar filas y columnas totalmente vacías
+    tabla = tabla.dropna(how="all").dropna(axis=1, how="all")
+    tabla.columns = [str(c).strip() for c in tabla.columns]
+
+    # Columnas de texto que en realidad son números con coma decimal ("17,5")
+    for col in tabla.columns:
+        if tabla[col].dtype == object:
+            convertida = pd.to_numeric(tabla[col].astype(str).str.strip().str.replace(",", ".", regex=False),
+                                       errors="coerce")
+            if convertida.notna().mean() >= 0.9:
+                tabla[col] = convertida
+    return tabla.reset_index(drop=True)
+
+
+def columnas_numericas(tabla: pd.DataFrame) -> list[str]:
+    """Columnas con al menos 3 valores numéricos (sirven como variable a simular)."""
+    return [c for c in tabla.columns
+            if pd.api.types.is_numeric_dtype(tabla[c]) and tabla[c].notna().sum() >= 3]
+
+
+def plantilla_csv() -> bytes:
+    """CSV de ejemplo para que el usuario vea el formato esperado."""
+    ejemplo = pd.DataFrame({"Demanda": _DEMANDA, "CostoUnitario": _COSTO_UNITARIO})
+    return ejemplo.to_csv(index=False).encode("utf-8")
